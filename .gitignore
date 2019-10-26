@@ -1,0 +1,4 @@
+*.swp
+build
+*.exe
+shader_errors.txt
