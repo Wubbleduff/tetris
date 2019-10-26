@@ -1,0 +1,17 @@
+
+Texture2D shader_texture;
+SamplerState sample_type;
+
+struct PSInput
+{
+  float4 position : SV_POSITION;
+  float4 color : COLOR;
+  float2 tex : TEXCOORD;
+};
+
+float4 flat_pixel_shader(PSInput input) : SV_TARGET
+{
+  //float4 texture_color = shader_texture.Sample(sample_type, input.tex);
+
+  return input.color;
+}
