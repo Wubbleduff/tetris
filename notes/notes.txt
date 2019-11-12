@@ -1,0 +1,5 @@
+
+11/12/2019
+Fixed swapping infinitely. Fixed being able to move and rotate pieces
+infinitely. Started marking rows to clear to draw tetris feedback. "Speeding"
+up line clearing.
