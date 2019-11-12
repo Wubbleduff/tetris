@@ -81,8 +81,8 @@ struct GameState
 
 
   // Grid cells to clear
-  int num_rows_to_clear  = 0;
-  int start_row_to_clear = 0;
+  int num_rows_to_clear = 0;
+  int rows_to_clear[4] = {};
 };
 
 
@@ -342,7 +342,7 @@ static void mark_filled_rows()
   Grid *grid = &game_state.grid;
 
   int num_marked_rows = 0;
-  int starting_row = 0;
+  int rows_to_clear[4] = {};
 
   // Kill filled rows
   // Go through cells and find filled row
@@ -360,39 +360,46 @@ static void mark_filled_rows()
 
     if(!found_gap)
     {
-      if(num_marked_rows == 0) starting_row = row;
+      rows_to_clear[num_marked_rows] = row;
       num_marked_rows++;
     }
   }
 
-  game_state.num_rows_to_clear  = num_marked_rows;
-  game_state.start_row_to_clear = starting_row;
+  game_state.num_rows_to_clear = num_marked_rows;
+  for(int i = 0; i < num_marked_rows; i++) game_state.rows_to_clear[i] = rows_to_clear[i];
 }
 
 static void clear_marked_rows()
 {
   Grid *grid = &game_state.grid;
-  int start_row = game_state.start_row_to_clear;
   int num_rows = game_state.num_rows_to_clear;
 
-  int target = start_row;
-  int to_copy = start_row + num_rows;
-
-  if(to_copy > grid->rows - 1) to_copy = grid->rows - 1;
-
-  // Clear the top-most row
-  memset(&(grid->cells[(grid->rows - 1) * grid->columns]), 0, sizeof(Cell) * grid->columns);
-
-  while(target != grid->rows - 1)
+  while(num_rows)
   {
-    Cell *dest = &(grid->cells[target * grid->columns]);
-    Cell *source = &(grid->cells[to_copy * grid->columns]);
+    // NOTE:
+    // The array of rows to clear is assumed to be ordered bottom-up
+    int target = game_state.rows_to_clear[num_rows - 1];
+    int to_copy = target + 1;
 
-    memcpy(dest, source, sizeof(Cell) * grid->columns);
+    // Clear the top-most row
+    memset(&(grid->cells[(grid->rows - 1) * grid->columns]), 0, sizeof(Cell) * grid->columns);
 
-    target++;
-    if(to_copy != grid->rows - 1) to_copy++;
+    // Move all rows from the target row down one
+    while(target != grid->rows - 1)
+    {
+      Cell *dest = &(grid->cells[target * grid->columns]);
+      Cell *source = &(grid->cells[to_copy * grid->columns]);
+
+      memcpy(dest, source, sizeof(Cell) * grid->columns);
+
+      target++;
+      to_copy++;
+    }
+
+    num_rows--;
   }
+
+  game_state.num_rows_to_clear = 0;
 }
 
 static void lock_piece(Piece *piece)
@@ -769,6 +776,7 @@ void update_tetris()
     {
       if(want_to_fall_faster) fall_counter += dt * SPEED_UP_MODIFIER;
       else fall_counter += dt;
+      //if(s_toggled) falling_piece->position.y -= 1;
 
       if(fall_counter >= FALL_INTERVAL)
       {
@@ -809,8 +817,6 @@ void update_tetris()
   if(game_state.num_rows_to_clear > 0)
   {
     clear_marked_rows();
-    game_state.num_rows_to_clear = 0;
-    game_state.start_row_to_clear = 0;
   }
 
 

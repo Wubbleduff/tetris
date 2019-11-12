@@ -186,9 +186,9 @@ static v2 &operator-=(v2 &a, v2 b) { a.x -= b.x; a.y -= b.y; return a; }
 static v3 &operator-=(v3 &a, v3 b) { a.x -= b.x; a.y -= b.y; a.z -= b.z; return a; }
 static v4 &operator-=(v4 &a, v4 b) { a.x -= b.x; a.y -= b.y; a.z -= b.z; a.w -= b.w; return a; }
 
-static v2 &operator*=(v2 &a, float b) { a.x -= b; a.y -= b; return a; }
-static v3 &operator*=(v3 &a, float b) { a.x -= b; a.y -= b; a.z -= b; return a; }
-static v4 &operator*=(v4 &a, float b) { a.x -= b; a.y -= b; a.z -= b; a.w -= b; return a; }
+static v2 &operator*=(v2 &a, float b) { a.x *= b; a.y *= b; return a; }
+static v3 &operator*=(v3 &a, float b) { a.x *= b; a.y *= b; a.z *= b; return a; }
+static v4 &operator*=(v4 &a, float b) { a.x *= b; a.y *= b; a.z *= b; a.w *= b; return a; }
 
 static v2 &operator/=(v2 &a, float b) { a.x /= b; a.y /= b; return a; }
 static v3 &operator/=(v3 &a, float b) { a.x /= b; a.y /= b; a.z /= b; return a; }

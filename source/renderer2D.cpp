@@ -129,10 +129,18 @@ struct RendererData
   std::vector<CellData> cells_to_render;
   std::vector<CellData> left_bar_cells_to_render;
   std::vector<CellData> right_bar_cells_to_render;
+
+
+
+  float grid_pixels_height;
+  float grid_pixels_width;
+  float bar_width;
 };
 
 // TODO: This is global. Move it somewhere nice.
 static RendererData *renderer_data;
+static const float GRID_WIDTH = 10.0f;
+static const float GRID_HEIGHT = 24.0f;
 
 
 
@@ -789,6 +797,12 @@ void init_renderer(HWND window_handle, unsigned in_framebuffer_width, unsigned i
 
     renderer_data->quad_texture.resource = render_target_shader_resource_view;
   }
+
+
+
+  renderer_data->grid_pixels_height = renderer_data->window.framebuffer_height;
+  renderer_data->grid_pixels_width = (10.0f / 24.0f) * renderer_data->grid_pixels_height;
+  renderer_data->bar_width = (renderer_data->window.framebuffer_width - renderer_data->grid_pixels_width) / 2.0f;
 }
 
 /*
@@ -895,9 +909,6 @@ static void render_grid()
     device_context->PSSetSamplers(0, 1, &texture->sample_state);
   }
   */
-
-  const float GRID_WIDTH = 10.0f;
-  const float GRID_HEIGHT = 24.0f;
 
   const float thickness = 0.05f;
   const v4 separator_color = v4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -1154,9 +1165,9 @@ void render()
 
   Window *window = &renderer_data->window;
 
-  float grid_pixels_height = window->framebuffer_height;
-  float grid_pixels_width = (10.0f / 24.0f) * grid_pixels_height;
-  float bar_width = (window->framebuffer_width - grid_pixels_width) / 2.0f;
+  float grid_pixels_height = renderer_data->grid_pixels_height;
+  float grid_pixels_width = renderer_data->grid_pixels_width;
+  float bar_width = renderer_data->bar_width;
 
   set_viewport(bar_width, grid_pixels_height, v2());
   render_bar(&renderer_data->left_bar_cells_to_render, bar_width, grid_pixels_height);
@@ -1294,8 +1305,27 @@ void draw_cell_in_right_bar(v2i position, Color color)
 
 v2 window_to_world_space(v2 window_position)
 {
-  return v2();
+  Window *window = &renderer_data->window;
+  v2 window_middle_pos = window_position;
+  window_middle_pos.x -= renderer_data->bar_width;
+
+  if(window_middle_pos.x < 0.0f) window_middle_pos.x = 0.0f;
+  if(window_middle_pos.x >= renderer_data->grid_pixels_width) window_middle_pos.x = renderer_data->grid_pixels_width - 1;
+  if(window_middle_pos.y < 0.0f) window_middle_pos.y = 0.0f;
+  if(window_middle_pos.y >= renderer_data->grid_pixels_height) window_middle_pos.y = renderer_data->grid_pixels_height - 1;
+  
+  v2 ndc_pos = window_middle_pos;
+  ndc_pos.x /= renderer_data->grid_pixels_width;
+  ndc_pos.y /= renderer_data->grid_pixels_height;
+  ndc_pos.y = 1.0f - ndc_pos.y;
+
+  v2 world_pos = ndc_pos;
+  world_pos.x *= GRID_WIDTH;
+  world_pos.y *= GRID_HEIGHT;
+
+  return world_pos;
 }
 
 ID3D11Device *get_d3d_device() { return renderer_data->resources.device; }
 ID3D11DeviceContext *get_d3d_device_context() { return renderer_data->resources.device_context; }
+
