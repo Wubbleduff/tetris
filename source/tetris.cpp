@@ -281,8 +281,6 @@ static void spawn_next_piece()
   if(num == last_num) num = (*game_state.distribution)(*game_state.generator);
   last_num = num;
 
-  num = O_PIECE;
-
   spawn_piece((PieceType)game_state.next_pieces[game_state.next_piece_index]);
   game_state.next_pieces[game_state.next_piece_index] = (PieceType)num;
   game_state.next_piece_index++;
@@ -299,8 +297,6 @@ static void reset_next_pieces()
     // If repeated piece, roll again
     if(num == last_num) num = (*game_state.distribution)(*game_state.generator);
     last_num = num;
-
-    num = O_PIECE;
 
     game_state.next_pieces[i] = (PieceType)num;
   }
