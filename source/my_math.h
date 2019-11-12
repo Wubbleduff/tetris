@@ -128,6 +128,20 @@ struct v4
   v4(float a, v3 v) : x(a),   y(v.x), z(v.y), w(v.z) { }
 };
 
+struct v2i
+{
+  int x, y;
+
+  v2i() {}
+  v2i(int inX, int inY) : x(inX), y(inY) {}
+
+  v2i operator+(const v2i &rhs) { return v2i(x + rhs.x, y + rhs.y); }
+  v2i operator-(const v2i &rhs) { return v2i(x - rhs.x, y - rhs.y); }
+
+  v2i &operator+=(const v2i &rhs) { x += rhs.x; y += rhs.y; return *this; }
+  v2i &operator-=(const v2i &rhs) { x -= rhs.x; y -= rhs.y; return *this; }
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 // vector operations
 ///////////////////////////////////////////////////////////////////////////////

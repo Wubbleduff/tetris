@@ -21,39 +21,12 @@ struct Color
   Color(float r, float g, float b, float a) : r(r), g(g), b(b), a(a) {}
 };
 
-struct Mesh;
-struct Shader;
-struct Texture;
-struct Model
-{
-  const char *debug_name = "";
-  bool show = true;
 
-  v3 position = v3();
-  v2 scale = v2(1.0f, 1.0f);
-  float rotation = 0.0f; // In degrees
-
-  v4 blend_color = v4(1.0f, 1.0f, 1.0f, 1.0f);
-
-  bool wireframe = false;
-
-  Mesh *mesh = 0;
-  Shader *shader = 0;
-  Texture *texture = 0;
-};
-
-typedef unsigned ModelHandle;
-
-
-ModelHandle draw_rect(v3 position, v2 scale, float rotation, Color color = Color(1.0f, 1.0f, 1.0f, 1.0f));
-Model *get_temp_model_pointer(ModelHandle model);
+void draw_cell(v2i position, Color color);
+void draw_cell_in_left_bar(v2i position, Color color);
+void draw_cell_in_right_bar(v2i position, Color color);
 
 v2 window_to_world_space(v2 window_position);
-
-void set_camera_position(v2 position);
-void set_camera_width(float width);
-
-
 
 void init_renderer(HWND window, unsigned framebuffer_width, unsigned framebuffer_height, bool is_fullscreen, bool is_vsync);
 void render();

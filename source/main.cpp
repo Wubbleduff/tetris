@@ -161,12 +161,12 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
   unsigned window_width = GetSystemMetrics(SM_CXSCREEN);
   unsigned window_height = GetSystemMetrics(SM_CYSCREEN);
 #else
-  unsigned window_width = 10 * 50;
+  unsigned window_width = 10 * 50 + 400;
   unsigned window_height = 24 * 50;
 #endif
 
-  //window_handle = CreateWindowEx(0, window_class.lpszClassName, "First", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, window_width, window_height, 0, 0, hInstance, 0);                                
-  window_handle = CreateWindowEx(0, window_class.lpszClassName, "First", WS_POPUP | WS_VISIBLE, 0, 0, window_width, window_height, 0, 0, hInstance, 0);                                
+  window_handle = CreateWindowEx(0, window_class.lpszClassName, "Tetris", WS_OVERLAPPEDWINDOW | WS_VISIBLE, 0, 0, window_width, window_height, 0, 0, hInstance, 0);                                
+  //window_handle = CreateWindowEx(0, window_class.lpszClassName, "Tetris", WS_POPUP | WS_VISIBLE, 0, 0, window_width, window_height, 0, 0, hInstance, 0);                                
   if(!window_handle) { return 1; }
 
 

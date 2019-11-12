@@ -107,18 +107,9 @@ struct Texture
   ID3D11SamplerState *sample_state;
 };
 
-struct Camera
+struct CellData
 {
-  v2 position = v2(0.0f, 0.0f);
-  float rotation = 0.0f;
-  float width = 60.0f;
-};
-
-struct LinePrimitive
-{
-  Mesh *mesh;
-  v3 a, b;
-  float thickness;
+  v2i position;
   Color color;
 };
 
@@ -130,18 +121,14 @@ struct RendererData
   FILE *shader_errors_file = 0;
   Shader quad_shader;
 
+  ID3D11Buffer *first_shader_buffer;
+
   Mesh quad_mesh;
   Texture quad_texture;
 
-  // Gobal matrix buffer for now. See TODO about this in the shader creation code.
-  ID3D11Buffer *first_shader_buffer;
-
-  // Assuming this is an only increasing array because of how model handles are passed out
-  std::vector<Model> models_to_render;
-
-  std::vector<Model> quads_to_render;
-
-  Camera camera;
+  std::vector<CellData> cells_to_render;
+  std::vector<CellData> left_bar_cells_to_render;
+  std::vector<CellData> right_bar_cells_to_render;
 };
 
 // TODO: This is global. Move it somewhere nice.
@@ -253,52 +240,6 @@ static mat4 make_ortho_projection_matrix(float width, float aspect_ratio, float 
   return ortho;
 }
 
-static mat4 make_world_matrix(v3 position, v2 scale, float rotation)
-{
-  mat4 scale_matrix = make_scale_matrix(v3(scale, 1.0f));
-  mat4 rotation_matrix = make_z_axis_rotation_matrix(deg_to_rad(rotation));
-
-  mat4 translation_matrix = make_translation_matrix(position);
-
-  return translation_matrix * rotation_matrix * scale_matrix;
-}
-
-static mat4 make_view_matrix(Camera *camera)
-{
-  mat4 trans = make_translation_matrix(v3(-camera->position, 0.0f));
-  mat4 rot = make_z_axis_rotation_matrix(-camera->rotation);
-
-  return rot * trans;
-}
-
-static mat4 make_inverse_view_matrix(Camera *camera)
-{
-  mat4 trans = make_translation_matrix(v3(camera->position, 0.0f));
-  mat4 rot = make_z_axis_rotation_matrix(camera->rotation);
-
-  return trans * rot;
-}
-
-static mat4 make_clip_matrix(Camera *camera)
-{
-  return make_ortho_projection_matrix(camera->width, renderer_data->window.aspect_ratio, 0.1f, 10.0f);
-}
-
-static mat4 make_inverse_clip_matrix(Camera *camera)
-{
-  float width = camera->width;
-  float height = width / renderer_data->window.aspect_ratio;
-  mat4 inv_ortho =
-  {
-    width / 2.0f, 0.0f, 0.0f, 0.0f,
-    0.0f, height / 2.0f, 0.0f, 0.0f,
-    0.0f, 0.0f, 0.0f, 0.0f,
-    0.0f, 0.0f, 0.0f, 1.0f
-  };
-
-  return inv_ortho;
-}
-
 
 static void make_quad(Mesh::Vertex *vertices, unsigned *indices)
 {
@@ -313,6 +254,20 @@ static void make_quad(Mesh::Vertex *vertices, unsigned *indices)
   indices[3] = 2;
   indices[4] = 3;
   indices[5] = 0;
+}
+
+static void set_viewport(float width, float height, v2 offset)
+{
+  D3D11_VIEWPORT viewport = {};
+  viewport.Width = width;
+  viewport.Height = height;
+  viewport.MinDepth = 0.0f;
+  viewport.MaxDepth = 1.0f;
+  viewport.TopLeftX = offset.x;
+  viewport.TopLeftY = offset.y;
+
+  // Create the viewport.
+  renderer_data->resources.device_context->RSSetViewports(1, &viewport);
 }
 
 
@@ -611,7 +566,7 @@ void init_renderer(HWND window_handle, unsigned in_framebuffer_width, unsigned i
 
   // Set up the description of the stencil state.
   D3D11_DEPTH_STENCIL_DESC depth_stencil_desc = {};
-  depth_stencil_desc.DepthEnable = true;
+  depth_stencil_desc.DepthEnable = false;
   depth_stencil_desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
   depth_stencil_desc.DepthFunc = D3D11_COMPARISON_LESS;
 
@@ -682,16 +637,7 @@ void init_renderer(HWND window_handle, unsigned in_framebuffer_width, unsigned i
   device_context->RSSetState(raster_state);
 
   // Setup the viewport for rendering.
-  D3D11_VIEWPORT viewport = {};
-  viewport.Width = (float)framebuffer_width;
-  viewport.Height = (float)framebuffer_height;
-  viewport.MinDepth = 0.0f;
-  viewport.MaxDepth = 1.0f;
-  viewport.TopLeftX = 0.0f;
-  viewport.TopLeftY = 0.0f;
-
-  // Create the viewport.
-  device_context->RSSetViewports(1, &viewport);
+  set_viewport(framebuffer_width, framebuffer_height, v2());
 
   aspect_ratio = (float)framebuffer_width / (float)framebuffer_height;
 
@@ -845,6 +791,7 @@ void init_renderer(HWND window_handle, unsigned in_framebuffer_width, unsigned i
   }
 }
 
+/*
 static void render_mesh(Mesh *mesh, Camera *camera, Shader *shader, v3 position, v2 scale, float rotation, v4 color,
                         Texture *texture, D3D_PRIMITIVE_TOPOLOGY topology, bool wireframe = false)
 {
@@ -908,79 +855,319 @@ static void render_mesh(Mesh *mesh, Camera *camera, Shader *shader, v3 position,
   unsigned num_indices = mesh->indices.size();
   device_context->DrawIndexed(num_indices, 0, 0);
 }
+*/
 
 
-static void render_scene(Camera *camera)
+static void render_grid()
 {
-  for(unsigned i = 0; i < renderer_data->models_to_render.size(); i++)
+  ID3D11DeviceContext *device_context = renderer_data->resources.device_context;
+  ID3D11RasterizerState *raster_state = renderer_data->resources.raster_state;
+  ID3D11RasterizerState *wireframe_raster_state = renderer_data->resources.wireframe_raster_state;
+
+
+  Mesh *mesh = &renderer_data->quad_mesh;
+  Shader *shader = &renderer_data->quad_shader;
+
+  // Vertex buffers
+  ID3D11Buffer *buffers[] = {mesh->vertex_buffer};
+  unsigned strides[] = {sizeof(Mesh::Vertex)};
+  unsigned offsets[] = {0};
+  unsigned num_buffers = sizeof(buffers) / sizeof(buffers[0]);
+  device_context->IASetVertexBuffers(0, num_buffers, buffers, strides, offsets);
+  device_context->IASetIndexBuffer(mesh->index_buffer, DXGI_FORMAT_R32_UINT, 0);
+  device_context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+
+
+  // Shaders
+  device_context->IASetInputLayout(shader->layout);
+  device_context->VSSetShader(shader->vertex_shader, NULL, 0);
+  device_context->PSSetShader(shader->pixel_shader, NULL, 0);
+
+
+
+  // Textures
+  /*
+  if(texture)
   {
-    Model *model = &renderer_data->models_to_render[i];
-    if(model->show)
+    device_context->PSSetShaderResources(0, 1, &texture->resource);
+
+    device_context->PSSetSamplers(0, 1, &texture->sample_state);
+  }
+  */
+
+  const float GRID_WIDTH = 10.0f;
+  const float GRID_HEIGHT = 24.0f;
+
+  const float thickness = 0.05f;
+  const v4 separator_color = v4(0.0f, 0.0f, 0.0f, 1.0f);
+
+
+
+  for(unsigned i = 0; i < renderer_data->cells_to_render.size(); i++)
+  {
+    CellData *cell = &renderer_data->cells_to_render[i];
+
+    // Matrices
+    mat4 world_m_model =
     {
-      if(model->wireframe)
-      {
-        render_mesh(model->mesh, camera, model->shader, model->position, model->scale, model->rotation,
-                    model->blend_color, model->texture, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST, true);
-      }
-      else
-      {
-        render_mesh(model->mesh, camera, model->shader, model->position, model->scale, model->rotation,
-                    model->blend_color, model->texture, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-      }
-    }
+      1.0f, 0.0f, 0.0f, (float)cell->position.x,
+      0.0f, 1.0f, 0.0f, (float)cell->position.y,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+    const float GRID_WIDTH = 10.0f;
+    const float GRID_HEIGHT = 24.0f;
+    mat4 clip_m_view =
+    {
+      2.0f / GRID_WIDTH, 0.0f,  0.0f, -1.0f,
+      0.0f, 2.0f / GRID_HEIGHT, 0.0f, -1.0f,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+
+    // Global shader buffers
+    D3D11_MAPPED_SUBRESOURCE mapped_resource;
+    HRESULT result = device_context->Map(shader->global_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
+    assert(!FAILED(result));
+
+    FirstShaderBuffer *data = (FirstShaderBuffer *)mapped_resource.pData;
+    data->world_m_model = world_m_model;
+    data->view_m_world = mat4();
+    data->clip_m_view = clip_m_view;
+    data->color = v4(cell->color.r, cell->color.g, cell->color.b, cell->color.a);
+    device_context->Unmap(shader->global_buffer, 0);
+
+    device_context->VSSetConstantBuffers(0, 1, &shader->global_buffer);
+
+
+    // Render
+    unsigned num_indices = mesh->indices.size();
+    device_context->DrawIndexed(num_indices, 0, 0);
+  }
+
+  // Row separators
+  for(unsigned i = 0; i < 24; i++)
+  {
+    float y = (float)i;
+
+    // Matrices
+    mat4 world_m_model =
+    {
+      GRID_WIDTH, 0.0f, 0.0f, 0.0f,
+      0.0f, thickness, 0.0f, y,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+    mat4 clip_m_view =
+    {
+      2.0f / GRID_WIDTH, 0.0f,  0.0f, -1.0f,
+      0.0f, 2.0f / GRID_HEIGHT, 0.0f, -1.0f,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+
+    // Global shader buffers
+    D3D11_MAPPED_SUBRESOURCE mapped_resource;
+    HRESULT result = device_context->Map(shader->global_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
+    assert(!FAILED(result));
+
+    FirstShaderBuffer *data = (FirstShaderBuffer *)mapped_resource.pData;
+    data->world_m_model = world_m_model;
+    data->view_m_world = mat4();
+    data->clip_m_view = clip_m_view;
+    data->color = separator_color;
+    device_context->Unmap(shader->global_buffer, 0);
+
+    device_context->VSSetConstantBuffers(0, 1, &shader->global_buffer);
+
+
+    // Render
+    unsigned num_indices = mesh->indices.size();
+    device_context->DrawIndexed(num_indices, 0, 0);
+  }
+
+  // Column separators
+  for(unsigned i = 0; i < 10; i++)
+  {
+    float x = (float)i;
+
+    // Matrices
+    mat4 world_m_model =
+    {
+      thickness, 0.0f, 0.0f, x,
+      0.0f, GRID_HEIGHT, 0.0f, 0.0f,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+    mat4 clip_m_view =
+    {
+      2.0f / GRID_WIDTH, 0.0f,  0.0f, -1.0f,
+      0.0f, 2.0f / GRID_HEIGHT, 0.0f, -1.0f,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+
+    // Global shader buffers
+    D3D11_MAPPED_SUBRESOURCE mapped_resource;
+    HRESULT result = device_context->Map(shader->global_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
+    assert(!FAILED(result));
+
+    FirstShaderBuffer *data = (FirstShaderBuffer *)mapped_resource.pData;
+    data->world_m_model = world_m_model;
+    data->view_m_world = mat4();
+    data->clip_m_view = clip_m_view;
+    data->color = separator_color;
+    device_context->Unmap(shader->global_buffer, 0);
+
+    device_context->VSSetConstantBuffers(0, 1, &shader->global_buffer);
+
+
+    // Render
+    unsigned num_indices = mesh->indices.size();
+    device_context->DrawIndexed(num_indices, 0, 0);
   }
 
 
-  for(unsigned i = 0; i < renderer_data->quads_to_render.size(); i++)
+  renderer_data->cells_to_render.clear();
+}
+
+static void render_bar(std::vector<CellData> *cells_to_render, float bar_width, float bar_height)
+{
+  ID3D11DeviceContext *device_context = renderer_data->resources.device_context;
+  ID3D11RasterizerState *raster_state = renderer_data->resources.raster_state;
+  ID3D11RasterizerState *wireframe_raster_state = renderer_data->resources.wireframe_raster_state;
+
+
+  Mesh *mesh = &renderer_data->quad_mesh;
+  Shader *shader = &renderer_data->quad_shader;
+
+  // Vertex buffers
+  ID3D11Buffer *buffers[] = {mesh->vertex_buffer};
+  unsigned strides[] = {sizeof(Mesh::Vertex)};
+  unsigned offsets[] = {0};
+  unsigned num_buffers = sizeof(buffers) / sizeof(buffers[0]);
+  device_context->IASetVertexBuffers(0, num_buffers, buffers, strides, offsets);
+  device_context->IASetIndexBuffer(mesh->index_buffer, DXGI_FORMAT_R32_UINT, 0);
+  device_context->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+
+
+  // Shaders
+  device_context->IASetInputLayout(shader->layout);
+  device_context->VSSetShader(shader->vertex_shader, NULL, 0);
+  device_context->PSSetShader(shader->pixel_shader, NULL, 0);
+
+
+
+  // Textures
+  /*
+  if(texture)
   {
-    Model *model = &renderer_data->quads_to_render[i];
-    if(model->show)
-    {
-      render_mesh(model->mesh, camera, model->shader, model->position, model->scale, model->rotation,
-                  model->blend_color, model->texture, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    }
+    device_context->PSSetShaderResources(0, 1, &texture->resource);
+
+    device_context->PSSetSamplers(0, 1, &texture->sample_state);
   }
-  renderer_data->quads_to_render.clear();
+  */
+
+
+  // Render background
+  {
+    // Global shader buffers
+    D3D11_MAPPED_SUBRESOURCE mapped_resource;
+    HRESULT result = device_context->Map(shader->global_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
+    assert(!FAILED(result));
+
+    FirstShaderBuffer *data = (FirstShaderBuffer *)mapped_resource.pData;
+    data->world_m_model = mat4(2.0f, 0.0f, 0.0f, -1.0f,
+                               0.0f, 2.0f, 0.0f, -1.0f,
+                               0.0f, 0.0f, 1.0f,  0.0f,
+                               0.0f, 0.0f, 0.0f,  1.0f
+                              );
+    data->view_m_world = mat4();
+    data->clip_m_view = mat4();
+    data->color = v4(0.1f, 0.1f, 0.1f, 1.0f);
+    device_context->Unmap(shader->global_buffer, 0);
+
+    device_context->VSSetConstantBuffers(0, 1, &shader->global_buffer);
+
+
+    // Render
+    unsigned num_indices = mesh->indices.size();
+    device_context->DrawIndexed(num_indices, 0, 0);
+  }
+
+
+  for(unsigned i = 0; i < cells_to_render->size(); i++)
+  {
+    CellData *cell = &(*cells_to_render)[i];
+
+    // Matrices
+    mat4 world_m_model =
+    {
+      1.0f, 0.0f, 0.0f, (float)cell->position.x,
+      0.0f, 1.0f, 0.0f, (float)cell->position.y,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+    float ratio = bar_width / bar_height;
+    mat4 clip_m_view =
+    {
+      1.0f / 3.0f, 0.0f,  0.0f, -0.33f,
+      0.0f, ratio / 3.0f, 0.0f, 0.0f,
+      0.0f, 0.0f, 1.0f, 0.0f,
+      0.0f, 0.0f, 0.0f, 1.0f
+    };
+
+    // Global shader buffers
+    D3D11_MAPPED_SUBRESOURCE mapped_resource;
+    HRESULT result = device_context->Map(shader->global_buffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped_resource);
+    assert(!FAILED(result));
+
+    FirstShaderBuffer *data = (FirstShaderBuffer *)mapped_resource.pData;
+    data->world_m_model = world_m_model;
+    data->view_m_world = mat4();
+    data->clip_m_view = clip_m_view;
+    data->color = v4(cell->color.r, cell->color.g, cell->color.b, cell->color.a);
+    device_context->Unmap(shader->global_buffer, 0);
+
+    device_context->VSSetConstantBuffers(0, 1, &shader->global_buffer);
+
+
+    // Render
+    unsigned num_indices = mesh->indices.size();
+    device_context->DrawIndexed(num_indices, 0, 0);
+  }
+
+
+  cells_to_render->clear();
 }
 
 void render()
 {
-
-
-
   D3DResources *resources = &renderer_data->resources;
-
-#if 0
-  // Render to texture
-  resources->device_context->OMSetRenderTargets(1, &resources->render_to_texture_target_view, resources->depth_stencil_view);
-  resources->device_context->ClearRenderTargetView(resources->render_to_texture_target_view, renderer_data->window.background_color);
-  resources->device_context->ClearDepthStencilView(resources->depth_stencil_view, D3D11_CLEAR_DEPTH, 1.0f, 0);
-
-
-  Camera *light_camera = &renderer_data->light_camera;
-  //light_camera->position = renderer_data->camera.position;
-  extern ModelHandle hat_handle;
-  light_camera->position = get_temp_model_pointer(hat_handle)->position - unit(light_camera->looking_direction) * 10.0f;
-  render_scene_depth(light_camera);
-#endif
-
-
 
   // Clear the back and depth buffer.
   resources->device_context->OMSetRenderTargets(1, &resources->render_target_view, resources->depth_stencil_view);
   resources->device_context->ClearRenderTargetView(resources->render_target_view, renderer_data->window.background_color);
   resources->device_context->ClearDepthStencilView(resources->depth_stencil_view, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
+  Window *window = &renderer_data->window;
 
-  // Render the scene using the player camera
-  render_scene(&renderer_data->camera);
+  float grid_pixels_height = window->framebuffer_height;
+  float grid_pixels_width = (10.0f / 24.0f) * grid_pixels_height;
+  float bar_width = (window->framebuffer_width - grid_pixels_width) / 2.0f;
 
-#if 0 // Render the quad with scene texture
-  render_2d_screen_mesh(&renderer_data->quad_mesh, &renderer_data->quad_shader, v3(-0.5f, 0.5f, 0.0f), v2(0.2f, 0.2f), 0.0f,
-                        v4(1.0f, 1.0f, 1.0f, 1.0f), &renderer_data->quad_texture, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-#endif
+  set_viewport(bar_width, grid_pixels_height, v2());
+  render_bar(&renderer_data->left_bar_cells_to_render, bar_width, grid_pixels_height);
 
 
+  set_viewport(grid_pixels_width, grid_pixels_height, v2(bar_width, 0.0f));
+  render_grid();
+
+
+  set_viewport(bar_width, grid_pixels_height, v2(bar_width + grid_pixels_width, 0.0f));
+  render_bar(&renderer_data->right_bar_cells_to_render, bar_width, grid_pixels_height);
 }
 
 void swap_frame()
@@ -1087,54 +1274,27 @@ void shutdown_renderer()
 #endif
 }
 
-ModelHandle draw_rect(v3 position, v2 scale, float rotation, Color color)
+void draw_cell(v2i position, Color color)
 {
-  Model model;
-
-  model.mesh = &renderer_data->quad_mesh;
-
-  model.shader = &renderer_data->quad_shader;
-
-  model.position = position;
-  model.scale = scale;
-  model.rotation = rotation;
-  model.blend_color = v4(color.r, color.g, color.b, color.a);
-
-  renderer_data->quads_to_render.push_back(model);
-  ModelHandle handle = renderer_data->quads_to_render.size() - 1;
-
-  return handle;
+  CellData cell = {position, color};
+  renderer_data->cells_to_render.push_back(cell);
 }
 
-Model *get_temp_model_pointer(ModelHandle model)
+void draw_cell_in_left_bar(v2i position, Color color)
 {
-  return &renderer_data->models_to_render[model];
+  CellData cell = {position, color};
+  renderer_data->left_bar_cells_to_render.push_back(cell);
 }
 
+void draw_cell_in_right_bar(v2i position, Color color)
+{
+  CellData cell = {position, color};
+  renderer_data->right_bar_cells_to_render.push_back(cell);
+}
 
 v2 window_to_world_space(v2 window_position)
 {
-  int window_width = renderer_data->window.framebuffer_width;
-  int window_height = renderer_data->window.framebuffer_height;
-  v2 ndc_space;
-  ndc_space.x = (window_position.x / (window_width / 2.0f)) - 1.0f;
-  ndc_space.y = -((window_position.y / (window_height / 2.0f)) - 1.0f);
-
-  v4 camera_space = make_inverse_clip_matrix(&renderer_data->camera) * v4(ndc_space, 0.0f, 1.0f);
-
-  v4 world_space = make_inverse_view_matrix(&renderer_data->camera) * camera_space;
-
-  return v2(world_space.x, world_space.y);
-}
-
-void set_camera_position(v2 position)
-{
-  renderer_data->camera.position = position;
-}
-
-void set_camera_width(float width)
-{
-  renderer_data->camera.width = width;
+  return v2();
 }
 
 ID3D11Device *get_d3d_device() { return renderer_data->resources.device; }

@@ -4,6 +4,12 @@
 #include <chrono> // For seeding random
 #include <random>
 
+static const int NUM_NEXT_PIECES = 6;
+static const float FALL_INTERVAL = 200.0f;
+static const float SPEED_UP_MODIFIER = 5.0f;
+static const float LOCK_TIME = 500.0f;
+static const float LOCK_TOLERANCE = 2000.0f;
+
 enum PieceType
 {
   I_PIECE,
@@ -12,7 +18,9 @@ enum PieceType
   O_PIECE,
   S_PIECE,
   T_PIECE,
-  Z_PIECE
+  Z_PIECE,
+
+  NO_PIECE
 };
 
 enum RotationState
@@ -21,20 +29,6 @@ enum RotationState
   RS_R,
   RS_2,
   RS_L,
-};
-
-struct v2i
-{
-  int x, y;
-
-  v2i() {}
-  v2i(int inX, int inY) : x(inX), y(inY) {}
-
-  v2i operator+(const v2i &rhs) { return v2i(x + rhs.x, y + rhs.y); }
-  v2i operator-(const v2i &rhs) { return v2i(x - rhs.x, y - rhs.y); }
-
-  v2i &operator+=(const v2i &rhs) { x += rhs.x; y += rhs.y; return *this; }
-  v2i &operator-=(const v2i &rhs) { x -= rhs.x; y -= rhs.y; return *this; }
 };
 
 struct Piece
@@ -64,16 +58,38 @@ struct Grid
 
 struct GameState
 {
+  // Game grid
   Grid grid;
   Piece falling_piece;
-  Piece held_piece;
+  PieceType held_piece;
 
+
+  // Piece generation
   std::default_random_engine *generator;
   std::uniform_int_distribution<int> *distribution;
+  int next_piece_index = 0;
+  PieceType next_pieces[NUM_NEXT_PIECES];
+
+
+  // Swap piece
+  bool swapped_piece_this_turn = false;
+
+
+  // Falling pieces
+  float lock_delay_timer = LOCK_TIME;
+  float lock_tolerance_timer = LOCK_TOLERANCE;
+
+
+  // Grid cells to clear
+  int num_rows_to_clear  = 0;
+  int start_row_to_clear = 0;
 };
 
-static GameState game_state;
 
+
+
+// GLOBALS
+static GameState game_state;
 
 static const int NUM_KICK_TESTS = 5;
 static v2i default_offset_data[20] =
@@ -101,6 +117,8 @@ static v2i o_piece_offset_data[4] =
   {-1, -1},
   {-1,  0}
 };
+
+
 
 
 
@@ -193,6 +211,47 @@ static Color piece_color(PieceType type)
   }
 }
 
+static void draw_piece(PieceType type, v2i position, float opaqueness, int screen_position = 0)
+{
+  Piece piece;
+  switch(type)
+  {
+    case 0: {make_i_piece(&piece); break;}
+    case 1: {make_j_piece(&piece); break;}
+    case 2: {make_l_piece(&piece); break;}
+    case 3: {make_o_piece(&piece); break;}
+    case 4: {make_s_piece(&piece); break;}
+    case 5: {make_t_piece(&piece); break;}
+    case 6: {make_z_piece(&piece); break;}
+    default: return;
+  }
+
+  for(int i = 0; i < 4; i++)
+  {
+    v2i pos = piece.points[i] + position;
+    Color color = piece_color(type);
+    color.a = opaqueness;
+
+    if(screen_position == -1)     draw_cell_in_left_bar(pos, color);
+    else if(screen_position == 0) draw_cell(pos, color);
+    else if(screen_position == 1) draw_cell_in_right_bar(pos, color);
+  }
+}
+
+static void draw_piece(Piece *piece, v2i position, float opaqueness, int screen_position = 0)
+{
+  for(int i = 0; i < 4; i++)
+  {
+    v2i pos = piece->points[i] + position;
+    Color color = piece_color(piece->type);
+    color.a = opaqueness;
+
+    if(screen_position == -1)     draw_cell_in_left_bar(pos, color);
+    else if(screen_position == 0) draw_cell(pos, color);
+    else if(screen_position == 1) draw_cell_in_right_bar(pos, color);
+  }
+}
+
 static void spawn_piece(PieceType type)
 {
   Piece *falling_piece = &game_state.falling_piece;
@@ -222,7 +281,31 @@ static void spawn_next_piece()
   if(num == last_num) num = (*game_state.distribution)(*game_state.generator);
   last_num = num;
 
-  spawn_piece((PieceType)num);
+  num = O_PIECE;
+
+  spawn_piece((PieceType)game_state.next_pieces[game_state.next_piece_index]);
+  game_state.next_pieces[game_state.next_piece_index] = (PieceType)num;
+  game_state.next_piece_index++;
+  game_state.next_piece_index %= NUM_NEXT_PIECES;
+}
+
+static void reset_next_pieces()
+{
+  static int last_num;
+  for(int i = 0; i < NUM_NEXT_PIECES; i++)
+  {
+    int num = (*game_state.distribution)(*game_state.generator);
+
+    // If repeated piece, roll again
+    if(num == last_num) num = (*game_state.distribution)(*game_state.generator);
+    last_num = num;
+
+    num = O_PIECE;
+
+    game_state.next_pieces[i] = (PieceType)num;
+  }
+
+  game_state.next_piece_index = 0;
 }
 
 static void restart_game()
@@ -232,6 +315,10 @@ static void restart_game()
   {
     grid->cells[i].filled = false;
   }
+
+  game_state.held_piece = NO_PIECE;
+
+  reset_next_pieces();
 
   spawn_next_piece();
 }
@@ -254,6 +341,64 @@ static bool valid_point(v2i p)
   return true;
 }
 
+static void mark_filled_rows()
+{
+  Grid *grid = &game_state.grid;
+
+  int num_marked_rows = 0;
+  int starting_row = 0;
+
+  // Kill filled rows
+  // Go through cells and find filled row
+  for(int row = 0; row < grid->rows; row++)
+  {
+    bool found_gap = false;
+    for(int column = 0; column < grid->columns; column++)
+    {
+      if((*grid)[v2i(column, row)].filled == false)
+      {
+        found_gap = true;
+        break;
+      }
+    }
+
+    if(!found_gap)
+    {
+      if(num_marked_rows == 0) starting_row = row;
+      num_marked_rows++;
+    }
+  }
+
+  game_state.num_rows_to_clear  = num_marked_rows;
+  game_state.start_row_to_clear = starting_row;
+}
+
+static void clear_marked_rows()
+{
+  Grid *grid = &game_state.grid;
+  int start_row = game_state.start_row_to_clear;
+  int num_rows = game_state.num_rows_to_clear;
+
+  int target = start_row;
+  int to_copy = start_row + num_rows;
+
+  if(to_copy > grid->rows - 1) to_copy = grid->rows - 1;
+
+  // Clear the top-most row
+  memset(&(grid->cells[(grid->rows - 1) * grid->columns]), 0, sizeof(Cell) * grid->columns);
+
+  while(target != grid->rows - 1)
+  {
+    Cell *dest = &(grid->cells[target * grid->columns]);
+    Cell *source = &(grid->cells[to_copy * grid->columns]);
+
+    memcpy(dest, source, sizeof(Cell) * grid->columns);
+
+    target++;
+    if(to_copy != grid->rows - 1) to_copy++;
+  }
+}
+
 static void lock_piece(Piece *piece)
 {
   Grid *grid = &game_state.grid;
@@ -268,43 +413,16 @@ static void lock_piece(Piece *piece)
     (*grid)[p].color = piece_color(piece->type);
   }
 
-  // Kill filled rows
-  // Go through cells and find filled row
-  for(int row = 0; row < grid->rows; row++)
-  {
-    bool found_gap = false;
-    int full_row_index = -1;
-    for(int column = 0; column < grid->columns; column++)
-    {
-      if((*grid)[v2i(column, row)].filled == false)
-      {
-        found_gap = true;
-        break;
-      }
-    }
-
-    if(!found_gap)
-    {
-      // Go through each row starting at the current row and copy row down
-      // Clear the top-most row
-      for(int i = 0; i < grid->columns; i++) (*grid)[v2i(i, grid->rows - 1)].filled = false;
-      // Move the rest down one row
-      for(int breaking_row = row; breaking_row < grid->rows - 1; breaking_row++)
-      {
-        for(int column = 0; column < grid->columns; column++)
-        {
-          (*grid)[v2i(column, breaking_row)] = (*grid)[v2i(column, breaking_row + 1)];
-        }
-      }
-
-      // Check this row again
-      row--;
-    }
-  }
-
+  // Check for rows to mark
+  mark_filled_rows();
 
   // Now make the next piece
   spawn_next_piece();
+
+  // Reset falling piece state
+  game_state.swapped_piece_this_turn = false;
+  game_state.lock_delay_timer = LOCK_TIME;
+  game_state.lock_tolerance_timer = LOCK_TOLERANCE;
 }
 
 static bool hit_side(Piece *p)
@@ -431,9 +549,6 @@ static bool try_kick(Piece *piece, RotationState prev_rotation)
 
 void init_tetris()
 {
-  set_camera_position(v2(5.0f, 12.0f));
-  set_camera_width(10.0f);
-
   game_state.grid.columns = 10;
   game_state.grid.rows = 24;
   game_state.grid.cells = new Cell[game_state.grid.rows * game_state.grid.columns];
@@ -442,7 +557,7 @@ void init_tetris()
   game_state.generator = new std::default_random_engine(seed);
   game_state.distribution = new std::uniform_int_distribution<int>(0, 6);
 
-  spawn_next_piece();
+  restart_game();
 }
 
 void update_tetris()
@@ -551,18 +666,17 @@ void update_tetris()
 
 
 
-  /*
-  if(move_counter <= -move_threshold && move_counter % move_interval == 0)
+  // Swap piece
+  if(space_toggled && !game_state.swapped_piece_this_turn)
   {
-    want_to_move = -1;
-    move_counter += move_interval;
+    PieceType type = game_state.held_piece;
+    game_state.held_piece = falling_piece->type;
+
+    if(type == NO_PIECE) spawn_next_piece();
+    else spawn_piece(type);
+
+    game_state.swapped_piece_this_turn = true;
   }
-  if(move_counter >= move_threshold && move_counter % move_interval == 0)
-  {
-    want_to_move = 1;
-    move_counter -= move_interval;
-  }
-  */
 
 
 
@@ -577,19 +691,6 @@ void update_tetris()
   bool want_to_lock_piece = false;
   bool want_to_fall_faster = ButtonDown('S');
   bool want_to_hard_drop = w_toggled;
-
-
-
-  // Swap piece
-  {
-    if(space_toggled)
-    {
-      PieceType type = game_state.held_piece.type;
-      game_state.held_piece = *falling_piece;
-      spawn_piece(type);
-    }
-  }
-
 
   // Collision checks
   {
@@ -640,47 +741,43 @@ void update_tetris()
   {
     // Piece moves down after time interval
 
-    static const float fall_interval = 200.0f;
-    static const float speed_up_modifier = 5.0f;
-    static const float lock_time = 500.0f;
     static float fall_counter = 0.0f;
-    static float lock_delay = lock_time;
 
     // Move based on input
     if(going_to_move)
     {
       falling_piece->position.x += going_to_move;
-      lock_delay = lock_time;
+      if(game_state.lock_tolerance_timer > 0.0f) game_state.lock_delay_timer = LOCK_TIME;
     }
 
     if(going_to_rotate)
     {
       rotate(falling_piece, going_to_rotate);
-      lock_delay = lock_time;
+      if(game_state.lock_tolerance_timer > 0.0f) game_state.lock_delay_timer = LOCK_TIME;
     }
 
     falling_piece->position += kick_offset;
 
     if(want_to_lock_piece)
     {
-      lock_delay -= dt;
+      game_state.lock_delay_timer -= dt;
+      game_state.lock_tolerance_timer -= dt;
 
-      if(lock_delay <= 0.0f)
+      if(game_state.lock_delay_timer <= 0.0f)
       {
         // Lock piece
         lock_piece(falling_piece);
-        lock_delay = lock_time;
       }
     }
     else
     {
-      if(want_to_fall_faster) fall_counter += dt * speed_up_modifier;
+      if(want_to_fall_faster) fall_counter += dt * SPEED_UP_MODIFIER;
       else fall_counter += dt;
 
-      if(fall_counter >= fall_interval)
+      if(fall_counter >= FALL_INTERVAL)
       {
         falling_piece->position.y -= 1;
-        fall_counter -= fall_interval;
+        fall_counter -= FALL_INTERVAL;
       }
     }
 
@@ -707,9 +804,17 @@ void update_tetris()
       {
         falling_piece->position = ghost_piece.position;
         lock_piece(falling_piece);
-        lock_delay = 0;
       }
     }
+  }
+
+
+
+  if(game_state.num_rows_to_clear > 0)
+  {
+    clear_marked_rows();
+    game_state.num_rows_to_clear = 0;
+    game_state.start_row_to_clear = 0;
   }
 
 
@@ -738,30 +843,10 @@ void update_tetris()
   // Draw calls
 
   // Draw falling piece
-  for(int i = 0; i < 4; i++)
-  {
-    v2i pos = falling_piece->position + falling_piece->points[i];
-    Color color = piece_color(falling_piece->type);
-    draw_rect(v3(pos.x, pos.y, 0.0f), v2(1.0f, 1.0f), 0.0f, color);
-  }
+  draw_piece(falling_piece, falling_piece->position, 1.0f);
 
   // Draw ghost piece
-  for(int i = 0; i < 4; i++)
-  {
-    v2i pos = ghost_piece.position + ghost_piece.points[i];
-    Color color = piece_color(ghost_piece.type);
-    color.a = 0.25f;
-    draw_rect(v3(pos.x, pos.y, 0.0f), v2(1.0f, 1.0f), 0.0f, color);
-  }
-
-  // Draw held piece
-  for(int i = 0; i < 4; i++)
-  {
-    v2i pos = game_state.held_piece.points[i];
-    Color color = piece_color(game_state.held_piece.type);
-    color.a = 0.25f;
-    draw_rect(v3(pos.x + 2.0f, pos.y + 20.0f, 0.0f), v2(1.0f, 1.0f), 0.0f, color);
-  }
+  draw_piece(&ghost_piece, ghost_piece.position, 0.25f);
 
   for(int row = 0; row < grid->rows; row++)
   {
@@ -770,9 +855,23 @@ void update_tetris()
       Cell *cell = &(*grid)[v2i(column, row)];
       if(cell->filled)
       {
-        draw_rect(v3(column, row, 0.0f), v2(1.0f, 1.0f), 0.0f, cell->color);
+        draw_cell(v2i(column, row), cell->color);
       }
     }
+  }
+
+
+  const int spacing = 2;
+  const int begin_height = (spacing * NUM_NEXT_PIECES) / 2;
+
+  // Draw held piece
+  if(game_state.swapped_piece_this_turn) draw_piece(game_state.held_piece, v2i(0, begin_height), 0.1f, -1);
+  else draw_piece(game_state.held_piece, v2i(0, begin_height), 1.0f, -1);
+
+  for(int piece = 0; piece < NUM_NEXT_PIECES; piece++)
+  {
+    int index = (game_state.next_piece_index + piece) % NUM_NEXT_PIECES;
+    draw_piece(game_state.next_pieces[index], v2i(0, -piece * 2 * spacing + begin_height), 1.0f, 1);
   }
 }
 
