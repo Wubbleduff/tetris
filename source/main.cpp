@@ -20,7 +20,7 @@ static float dt;
 static bool running;
 
 
-#define MAX_BUTTONS 165
+#define MAX_BUTTONS 256
 static bool keyStates[MAX_BUTTONS] = {};
 static bool mouseStates[8] = {};
 
@@ -119,13 +119,13 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
 
     case WM_KEYDOWN: 
     {
-      keyStates[wParam] = true;
+      if(wParam >= 0 && wParam < MAX_BUTTONS) keyStates[wParam] = true;
     }
     break;
 
     case WM_KEYUP:
     {
-      keyStates[wParam] = false;
+      if(wParam >= 0 && wParam < MAX_BUTTONS) keyStates[wParam] = false;
     }
     break;
 

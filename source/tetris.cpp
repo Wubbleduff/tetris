@@ -83,6 +83,9 @@ struct GameState
   // Grid cells to clear
   int num_rows_to_clear = 0;
   int rows_to_clear[4] = {};
+
+  
+  bool freeze = false;
 };
 
 
@@ -117,6 +120,13 @@ static v2i o_piece_offset_data[4] =
   {-1, -1},
   {-1,  0}
 };
+
+
+
+
+
+
+
 
 
 
@@ -252,6 +262,39 @@ static void draw_piece(Piece *piece, v2i position, float opaqueness, int screen_
   }
 }
 
+static bool animate_filled_rows()
+{
+  static float timer = 0.0f;
+  static int current_column = 0;
+
+  static const float animation_interval = 40.0f;
+  float animation_threshold = animation_interval;
+
+  timer += get_dt();
+
+  Grid *grid = &game_state.grid;
+  if(timer >= animation_threshold)
+  {
+    for(int i = 0; i < game_state.num_rows_to_clear; i++)
+    {
+      v2i cell = v2i(current_column, game_state.rows_to_clear[i]);
+      (*grid)[cell].color = Color(0.0f, 0.0f, 0.0f, 1.0f);
+    }
+
+    current_column++;
+
+    timer -= animation_threshold;
+  }
+
+  if(current_column >= grid->columns)
+  {
+    current_column = 0;
+    return true;
+  }
+
+  return false;
+}
+
 static void spawn_piece(PieceType type)
 {
   Piece *falling_piece = &game_state.falling_piece;
@@ -318,10 +361,6 @@ static void restart_game()
 
   spawn_next_piece();
 }
-
-
-
-
 
 static void swap(int &a, int &b)
 {
@@ -419,8 +458,6 @@ static void lock_piece(Piece *piece)
   // Check for rows to mark
   mark_filled_rows();
 
-  // Now make the next piece
-  spawn_next_piece();
 
   // Reset falling piece state
   game_state.swapped_piece_this_turn = false;
@@ -739,21 +776,25 @@ void update_tetris()
 
 
 
+
+
+
   // Move falling piece
   Piece ghost_piece;
+  bool locked_piece = false;
   {
     // Piece moves down after time interval
 
     static float fall_counter = 0.0f;
 
     // Move based on input
-    if(going_to_move)
+    if(going_to_move && !game_state.freeze)
     {
       falling_piece->position.x += going_to_move;
       if(game_state.lock_tolerance_timer > 0.0f) game_state.lock_delay_timer = LOCK_TIME;
     }
 
-    if(going_to_rotate)
+    if(going_to_rotate && !game_state.freeze)
     {
       rotate(falling_piece, going_to_rotate);
       if(game_state.lock_tolerance_timer > 0.0f) game_state.lock_delay_timer = LOCK_TIME;
@@ -770,12 +811,16 @@ void update_tetris()
       {
         // Lock piece
         lock_piece(falling_piece);
+        locked_piece = true;
       }
     }
     else
     {
-      if(want_to_fall_faster) fall_counter += dt * SPEED_UP_MODIFIER;
-      else fall_counter += dt;
+      if(!game_state.freeze)
+      {
+        if(want_to_fall_faster) fall_counter += dt * SPEED_UP_MODIFIER;
+        else fall_counter += dt;
+      }
       //if(s_toggled) falling_piece->position.y -= 1;
 
       if(fall_counter >= FALL_INTERVAL)
@@ -804,19 +849,34 @@ void update_tetris()
       ghost_piece.position.y += 1;
       
 
-      if(want_to_hard_drop)
+      if(want_to_hard_drop && !game_state.freeze)
       {
         falling_piece->position = ghost_piece.position;
         lock_piece(falling_piece);
+        locked_piece = true;
       }
     }
   }
 
 
 
+  // Clearing filled rows
   if(game_state.num_rows_to_clear > 0)
   {
-    clear_marked_rows();
+    game_state.freeze = true;
+    bool done = animate_filled_rows();
+
+    // Just got done clearing rows
+    if(done)
+    {
+      clear_marked_rows();
+      spawn_next_piece();
+    }
+  }
+  else
+  {
+    game_state.freeze = false;
+    if(locked_piece) spawn_next_piece();
   }
 
 
