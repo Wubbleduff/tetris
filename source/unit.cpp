@@ -1,6 +1,10 @@
-#include "main.cpp"
-#include "renderer2d.cpp"
+
+// Game
 #include "tetris.cpp"
+
+// Platform specific
+#include "platform_windows/main_windows.cpp"
+#include "platform_windows/renderer.cpp"
 
 #include "imgui.cpp"
 #include "imgui_draw.cpp"

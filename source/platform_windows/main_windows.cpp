@@ -1,4 +1,6 @@
-#include "renderer2D.h"
+#include "windows_renderer.h"
+#include "input.h"
+#include "tetris.h"
 
 #include "imgui.h"
 #include "imgui_impl_dx11.h"
@@ -8,7 +10,6 @@
 #include <stdio.h>
 #include <time.h>
 
-#include "tetris.h"
 
 
 static HWND window_handle;
@@ -49,7 +50,7 @@ static void imgui_endframe()
 }
 
 
-bool ButtonDown(unsigned button)
+bool button_state(char button)
 {
   if(button < 0 || button > MAX_BUTTONS) return false;
 

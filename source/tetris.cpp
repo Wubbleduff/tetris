@@ -1,5 +1,8 @@
 #include "tetris.h"
-#include "renderer2d.h"
+
+#include "game_renderer.h"
+#include "input.h"
+#include "game_timer.h"
 
 #include <chrono> // For seeding random
 #include <random>
@@ -60,8 +63,6 @@ struct GameState
 {
   // Game grid
   Grid grid;
-  Piece falling_piece;
-  PieceType held_piece;
 
 
   // Piece generation
@@ -72,10 +73,12 @@ struct GameState
 
 
   // Swap piece
+  PieceType held_piece;
   bool swapped_piece_this_turn = false;
 
 
-  // Falling pieces
+  // Falling piece
+  Piece falling_piece;
   float lock_delay_timer = LOCK_TIME;
   float lock_tolerance_timer = LOCK_TOLERANCE;
 
@@ -86,6 +89,8 @@ struct GameState
 
   
   bool freeze = false;
+
+  unsigned score = 0;
 };
 
 
@@ -133,6 +138,7 @@ static v2i o_piece_offset_data[4] =
 
 
 
+/*
 static v2 mouse_world_position()
 {
   return window_to_world_space(MouseWindowPosition());
@@ -143,6 +149,10 @@ static v2i mouse_grid_position()
   v2 world_pos = mouse_world_position();
   return v2i((int)(world_pos.x), (int)(world_pos.y));
 }
+*/
+
+
+
 
 static void make_i_piece(Piece *p)
 {
@@ -233,6 +243,7 @@ static void draw_piece(PieceType type, v2i position, float opaqueness, int scree
     case 4: {make_s_piece(&piece); break;}
     case 5: {make_t_piece(&piece); break;}
     case 6: {make_z_piece(&piece); break;}
+
     default: return;
   }
 
@@ -250,6 +261,8 @@ static void draw_piece(PieceType type, v2i position, float opaqueness, int scree
 
 static void draw_piece(Piece *piece, v2i position, float opaqueness, int screen_position = 0)
 {
+  if(piece->type == NO_PIECE) return;
+
   for(int i = 0; i < 4; i++)
   {
     v2i pos = piece->points[i] + position;
@@ -383,7 +396,6 @@ static void mark_filled_rows()
   int num_marked_rows = 0;
   int rows_to_clear[4] = {};
 
-  // Kill filled rows
   // Go through cells and find filled row
   for(int row = 0; row < grid->rows; row++)
   {
@@ -406,6 +418,10 @@ static void mark_filled_rows()
 
   game_state.num_rows_to_clear = num_marked_rows;
   for(int i = 0; i < num_marked_rows; i++) game_state.rows_to_clear[i] = rows_to_clear[i];
+
+  int score_increase = num_marked_rows * 10;
+  //if(num_marked_rows == 4) score_increase *= 4;
+  game_state.score += score_increase;
 }
 
 static void clear_marked_rows()
@@ -458,11 +474,11 @@ static void lock_piece(Piece *piece)
   // Check for rows to mark
   mark_filled_rows();
 
-
   // Reset falling piece state
   game_state.swapped_piece_this_turn = false;
   game_state.lock_delay_timer = LOCK_TIME;
   game_state.lock_tolerance_timer = LOCK_TOLERANCE;
+  game_state.falling_piece.type = NO_PIECE;
 }
 
 static bool hit_side(Piece *p)
@@ -624,23 +640,23 @@ void update_tetris()
     static bool r_down = false;
     static bool space_down = false;
 
-    if(ButtonDown('W') && !w_down) w_toggled = true;
-    if(ButtonDown('A') && !a_down) a_toggled = true; 
-    if(ButtonDown('S') && !s_down) s_toggled = true;
-    if(ButtonDown('D') && !d_down) d_toggled = true;
-    if(ButtonDown('J') && !j_down) j_toggled = true; 
-    if(ButtonDown('L') && !l_down) l_toggled = true;
-    if(ButtonDown('R') && !r_down) r_toggled = true;
-    if(ButtonDown(' ') && !space_down) space_toggled = true;
+    if(button_state('W') && !w_down) w_toggled = true;
+    if(button_state('A') && !a_down) a_toggled = true; 
+    if(button_state('S') && !s_down) s_toggled = true;
+    if(button_state('D') && !d_down) d_toggled = true;
+    if(button_state('J') && !j_down) j_toggled = true; 
+    if(button_state('L') && !l_down) l_toggled = true;
+    if(button_state('R') && !r_down) r_toggled = true;
+    if(button_state(' ') && !space_down) space_toggled = true;
 
-    w_down = ButtonDown('W');
-    a_down = ButtonDown('A');
-    s_down = ButtonDown('S');
-    d_down = ButtonDown('D');
-    j_down = ButtonDown('J');
-    l_down = ButtonDown('L');
-    r_down = ButtonDown('R');
-    space_down = ButtonDown(' ');
+    w_down = button_state('W');
+    a_down = button_state('A');
+    s_down = button_state('S');
+    d_down = button_state('D');
+    j_down = button_state('J');
+    l_down = button_state('L');
+    r_down = button_state('R');
+    space_down = button_state(' ');
   }
 
   if(r_toggled)
@@ -661,16 +677,16 @@ void update_tetris()
   const static float move_interval = 50.0f;
   const static float delay_time = 125.0f;
 
-  if(ButtonDown('A') && ButtonDown('D'))
+  if(button_state('A') && button_state('D'))
   {
     move_counter = 0;
     delay_counter = 0;
   }
-  if(ButtonDown('A'))
+  if(button_state('A'))
   {
     delay_counter -= dt;
   }
-  else if(ButtonDown('D'))
+  else if(button_state('D'))
   {
     delay_counter += dt;
   }
@@ -729,7 +745,7 @@ void update_tetris()
   int going_to_rotate = 0;
   v2i kick_offset = v2i(0, 0);
   bool want_to_lock_piece = false;
-  bool want_to_fall_faster = ButtonDown('S');
+  bool want_to_fall_faster = button_state('S');
   bool want_to_hard_drop = w_toggled;
 
   // Collision checks
@@ -883,6 +899,7 @@ void update_tetris()
 
 
   // Debugging
+  /*
   if(MouseDown(0))
   {
     v2i mouse_pos = mouse_grid_position();
@@ -894,6 +911,7 @@ void update_tetris()
     v2i mouse_pos = mouse_grid_position();
     (*grid)[mouse_pos].filled = false;
   }
+  */
 
   //draw_rect(v3(mouse_world_position(), 0.0f), v2(1.0f, 1.0f), 0.0f, Color(1, 1, 1, 1));
 
@@ -903,9 +921,6 @@ void update_tetris()
 
 
   // Draw calls
-
-  // Draw falling piece
-  draw_piece(falling_piece, falling_piece->position, 1.0f);
 
   // Draw ghost piece
   draw_piece(&ghost_piece, ghost_piece.position, 0.25f);
@@ -921,6 +936,9 @@ void update_tetris()
       }
     }
   }
+
+  // Draw falling piece
+  draw_piece(falling_piece, falling_piece->position, 1.0f);
 
 
   const int spacing = 2;
