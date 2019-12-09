@@ -6,6 +6,7 @@
 
 #include <chrono> // For seeding random
 #include <random>
+#include <cstring> // memset
 
 static const int NUM_NEXT_PIECES = 6;
 static const float FALL_INTERVAL = 200.0f;
@@ -312,7 +313,7 @@ static void spawn_piece(PieceType type)
 {
   Piece *falling_piece = &game_state.falling_piece;
 
-  falling_piece->position = v2i(4, 22);
+  falling_piece->position = v2i(4, 16);
   falling_piece->rotation = RS_0;
 
   switch(type)
@@ -618,6 +619,23 @@ void init_tetris()
 
 void update_tetris()
 {
+  /*
+  static v2i pos = v2i();
+  pos.x++;
+  if(pos.x >= 16)
+  {
+    pos.x = 0;
+    pos.y++;
+  }
+  if(pos.y >= 16)
+  {
+    pos.y = 0;
+  }
+  draw_cell(pos, Color(0, 0, 1, 1));
+  */
+
+
+#if 1
   Grid *grid = &game_state.grid;
   Piece *falling_piece = &game_state.falling_piece;
 
@@ -953,5 +971,6 @@ void update_tetris()
     int index = (game_state.next_piece_index + piece) % NUM_NEXT_PIECES;
     draw_piece(game_state.next_pieces[index], v2i(0, -piece * 2 * spacing + begin_height), 1.0f, 1);
   }
+#endif
 }
 
