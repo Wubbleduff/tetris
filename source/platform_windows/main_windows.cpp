@@ -50,7 +50,7 @@ static void imgui_endframe()
 }
 
 
-bool button_state(char button)
+bool button_state(unsigned char button)
 {
   if(button < 0 || button > MAX_BUTTONS) return false;
 
