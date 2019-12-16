@@ -1,4 +1,5 @@
-#include "windows_renderer.h"
+#include "renderer.h"
+#include "network_client.h"
 #include "input.h"
 #include "tetris.h"
 
@@ -19,6 +20,9 @@ static LARGE_INTEGER last_time;
 static float dt;
 
 static bool running;
+
+static const float NETWORK_FREQUENCY = 33.33f;
+static float network_timer = 0.0f;
 
 
 #define MAX_BUTTONS 256
@@ -71,13 +75,15 @@ v2 MouseWindowPosition()
 
 float get_dt()
 {
-  if(dt > 32.0f) return 32.0f;
+  if(dt > 33.33f) return 33.33f;
   return dt;
 }
 
 static void initialize(unsigned client_width, unsigned client_height, bool is_fullscreen, bool is_vsync)
 {
   init_renderer(window_handle, client_width, client_height, is_fullscreen, is_vsync);
+
+  init_network_client("192.168.0.41", 4242, 16, 16);
 
   init_imgui();
 
@@ -91,6 +97,7 @@ static void shutdown()
   ImGui_ImplWin32_Shutdown();
   ImGui::DestroyContext();
 
+  shutdown_network_client();
   DestroyWindow(window_handle);
 }
 
@@ -211,7 +218,7 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
     LARGE_INTEGER t;
     QueryPerformanceCounter(&t);
 
-    // compute and print the elapsed time in millisec
+    // compute the elapsed time in millisec
     dt = (t.QuadPart - last_time.QuadPart) * 1000.0 / frequency.QuadPart;
     last_time = t;
 
@@ -221,6 +228,14 @@ int CALLBACK WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLi
 
     render();
     swap_frame();
+
+    network_timer += get_dt();
+    if(network_timer >= NETWORK_FREQUENCY)
+    {
+      printf("Sending at network time = %f\n", network_timer);
+      send_network_data();
+      network_timer -= NETWORK_FREQUENCY;
+    }
   }
 
   shutdown();

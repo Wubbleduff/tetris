@@ -1,7 +1,7 @@
 
 
-#include "windows_renderer.h"
-#include "game_renderer.h"
+#include "renderer.h"
+#include "game_presentation.h"
 
 #include "my_math.h" // v2
 
@@ -1291,19 +1291,19 @@ void shutdown_renderer()
 #endif
 }
 
-void draw_cell(v2i position, Color color)
+void renderer_add_cell(v2i position, Color color)
 {
   CellData cell = {position, color};
   renderer_data->cells_to_render.push_back(cell);
 }
 
-void draw_cell_in_left_bar(v2i position, Color color)
+void renderer_add_cell_in_left_bar(v2i position, Color color)
 {
   CellData cell = {position, color};
   renderer_data->left_bar_cells_to_render.push_back(cell);
 }
 
-void draw_cell_in_right_bar(v2i position, Color color)
+void renderer_add_cell_in_right_bar(v2i position, Color color)
 {
   CellData cell = {position, color};
   renderer_data->right_bar_cells_to_render.push_back(cell);

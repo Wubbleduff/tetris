@@ -1,6 +1,6 @@
 #include "tetris.h"
 
-#include "game_renderer.h"
+#include "game_presentation.h"
 #include "input.h"
 #include "game_timer.h"
 
@@ -741,7 +741,7 @@ void update_tetris()
 
 
   // Swap piece
-  if(space_toggled && !game_state.swapped_piece_this_turn)
+  if(space_toggled && !game_state.swapped_piece_this_turn && !game_state.freeze)
   {
     PieceType type = game_state.held_piece;
     game_state.held_piece = falling_piece->type;

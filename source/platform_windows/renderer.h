@@ -1,6 +1,6 @@
 #pragma once
 
-#include "my_math.h"
+#include "../my_math.h"
 
 #include <windows.h>
 
@@ -23,4 +23,7 @@ ID3D11DeviceContext *get_d3d_device_context();
 
 v2 window_to_world_space(v2 window_position);
 
+void renderer_add_cell(v2i position, Color color);
+void renderer_add_cell_in_left_bar(v2i position, Color color);
+void renderer_add_cell_in_right_bar(v2i position, Color color);
 
