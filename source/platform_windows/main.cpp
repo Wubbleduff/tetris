@@ -83,7 +83,7 @@ static void initialize(unsigned client_width, unsigned client_height, bool is_fu
 {
   init_renderer(window_handle, client_width, client_height, is_fullscreen, is_vsync);
 
-  init_network_client("192.168.0.41", 4242, 16, 16);
+  init_network_client("192.168.0.42", 4242, 16, 16);
 
   init_imgui();
 
