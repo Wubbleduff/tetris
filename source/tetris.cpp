@@ -230,6 +230,8 @@ static Color piece_color(PieceType type)
     case T_PIECE: { return Color(1.0f, 0.0f, 1.0f, 1.0f); }
     case Z_PIECE: { return Color(1.0f, 0.0f, 0.0f, 1.0f); }
   }
+
+  return Color();
 }
 
 static void draw_piece(PieceType type, v2i position, float opaqueness, int screen_position = 0)
