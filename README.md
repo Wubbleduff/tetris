@@ -3,4 +3,4 @@
 I developed a Tetris game from scratch and streamed it to a Raspberry Pi. The Raspberry Pi received the data from a UDP socket and drove an LED grid to display the game.
 This is the client for the tetris game. It contains the game engine code and redirects output to the graphics system for window display as well as network streaming.
 
-![Alt text]("notes/Screenshot 2020-11-21 152522.png"?raw=true "Result")
+![alt text](https://github.com/Wubbleduff/tetris/tree/master/notes/Screenshot 2020-11-21 152522.png?raw=true)
